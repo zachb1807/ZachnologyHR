@@ -88,7 +88,28 @@ try {
     await new Promise(resolve => setTimeout(resolve, 200));
   }
   assert.ok(crossInstance, 'Session must work across independent server instances');
-  assert.equal((await request('/auth/logout', { method: 'POST', headers: { Origin: 'https://other.test', Cookie: session } })).status, 403);
+  for (const headers of [
+    { Origin: 'https://other.test' },
+    { Origin: 'null' },
+    {},
+    { Origin: 'null', 'Sec-Fetch-Site': 'cross-site' },
+    { Origin: 'https://other.test', 'Sec-Fetch-Site': 'same-site' },
+    { Origin: base, 'Sec-Fetch-Site': 'cross-site' },
+  ]) {
+    const blocked = await request('/auth/logout', { method: 'POST', headers: { ...headers, Cookie: session } });
+    assert.equal(blocked.status, 403);
+    assert.equal(blocked.headers.getSetCookie().length, 0);
+  }
+  for (const headers of [
+    { Origin: 'null', 'Sec-Fetch-Site': 'same-origin' },
+    { 'Sec-Fetch-Site': 'same-origin' },
+    { Origin: 'https://deployment-alias.example.test', 'Sec-Fetch-Site': 'same-origin' },
+  ]) {
+    const result = await request('/auth/logout', { method: 'POST', headers: { ...headers, Cookie: session } });
+    assert.equal(result.status, 303);
+    assert.equal(result.headers.get('location'), base + '/');
+    assert.ok(result.headers.getSetCookie().some(c => c.startsWith('zhr_session=') && c.includes('Max-Age=0')));
+  }
   const logout = await request('/auth/logout', { method: 'POST', headers: { Origin: base, Cookie: session } });
   assert.equal(logout.status, 303);
   for (const name of ['zhr_session', 'zhr_session.1', 'zhr_session.2']) {
