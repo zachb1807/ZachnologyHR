@@ -14,7 +14,7 @@ globalThis.fetch = async (input, options) => {
   }
   if (url.endsWith('/userinfo')) {
     if (options.headers.Authorization !== 'Bearer test-access-token') return new Response(null, { status: 401 });
-    return Response.json({ sub: 'test|employee', name: 'Test Employee', given_name: 'Test', family_name: 'Employee', email: 'employee@example.test',
+    return Response.json({ sub: 'test|employee', name: 'Test Employee', given_name: 'Test', family_name: 'Employee', email: 'employee@example.test', test_padding: 'x'.repeat(2600),
       'https://namespace.zachnology.com/app_metadata': { department: 'Engineering', employee_id: 'TEST-101', city: 'Chicago', country: null, title: 'Engineer', user_type: 'Full Time', custom_field: 'Extra property' },
       'https://namespace.zachnology.com/user_data/phone': '+1 555 0100' });
   }

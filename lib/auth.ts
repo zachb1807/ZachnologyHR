@@ -1,6 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdir, readFile, writeFile, unlink, readdir } from 'node:fs/promises';
-import path from 'node:path';
+import type { NextResponse } from 'next/server';
 import { EncryptJWT, jwtDecrypt } from 'jose';
 import { cookies } from 'next/headers';
 
@@ -9,7 +8,9 @@ export const TRANSACTION_COOKIE = 'zhr_transaction';
 export const METADATA_CLAIM = 'https://namespace.zachnology.com/app_metadata';
 export const PHONE_CLAIM = 'https://namespace.zachnology.com/user_data/phone';
 export type Profile = Record<string, unknown> & { sub: string };
-const sessionDirectory = path.join(process.cwd(), '.data', 'sessions');
+const SESSION_CHUNK_SIZE = 3000;
+const SESSION_CHUNKS = 3;
+const sessionCookieName = (index: number) => index === 0 ? SESSION_COOKIE : `${SESSION_COOKIE}.${index}`;
 
 export function config() {
   const base = new URL(process.env.APP_BASE_URL || 'http://localhost:3000');
@@ -45,32 +46,31 @@ export async function seal(payload: Record<string, unknown>, seconds: number, au
 export async function unseal(token: string, audience: string) {
   return (await jwtDecrypt(token, key(), { issuer: 'zachnologyhr', audience, keyManagementAlgorithms: ['dir'], contentEncryptionAlgorithms: ['A256GCM'] })).payload;
 }
-function sessionPath(id: string) {
-  if (!/^[A-Za-z0-9_-]{43}$/.test(id)) throw new Error('Invalid session');
-  return path.join(sessionDirectory, createHash('sha256').update(id).digest('hex'));
-}
-export async function deleteSession(id?: string) {
-  if (!id) return;
-  try { await unlink(sessionPath(id)); } catch { /* Already expired or removed. */ }
+export function clearSessionCookies(response: NextResponse) {
+  for (let i = 0; i < SESSION_CHUNKS; i++) {
+    response.cookies.set(sessionCookieName(i), '', cookieOptions(0));
+  }
 }
 export async function createSession(profile: Profile, lifetime: number) {
-  await mkdir(sessionDirectory, { recursive: true, mode: 0o700 });
-  // Expired profile files are removed on subsequent sign-ins.
-  for (const file of await readdir(sessionDirectory)) {
-    if (!/^[a-f0-9]{64}$/.test(file)) continue;
-    try { await unseal(await readFile(path.join(sessionDirectory, file), 'utf8'), 'session'); }
-    catch { await unlink(path.join(sessionDirectory, file)).catch(() => {}); }
+  const token = await seal({ profile }, lifetime, 'session');
+  if (token.length > SESSION_CHUNK_SIZE * SESSION_CHUNKS) throw new Error('Session profile exceeds cookie capacity');
+  return token;
+}
+export function setSessionCookies(response: NextResponse, token: string, lifetime: number) {
+  for (let i = 0; i < SESSION_CHUNKS; i++) {
+    const chunk = token.slice(i * SESSION_CHUNK_SIZE, (i + 1) * SESSION_CHUNK_SIZE);
+    // Clear leftover chunks when a new profile is smaller than the previous one.
+    response.cookies.set(sessionCookieName(i), chunk, cookieOptions(chunk ? lifetime : 0));
   }
-  const id = randomValue();
-  await writeFile(sessionPath(id), await seal({ profile }, lifetime, 'session'), { mode: 0o600, flag: 'wx' });
-  return id;
 }
 export async function getProfile(): Promise<Profile | null> {
-  const id = (await cookies()).get(SESSION_COOKIE)?.value;
-  if (!id) return null;
+  const store = await cookies();
+  if (!store.get(SESSION_COOKIE)?.value) return null;
+  const token = Array.from({ length: SESSION_CHUNKS }, (_, i) => store.get(sessionCookieName(i))?.value || '').join('');
+  if (token.length > SESSION_CHUNK_SIZE * SESSION_CHUNKS) return null;
   try {
-    const session = await unseal(await readFile(sessionPath(id), 'utf8'), 'session');
+    const session = await unseal(token, 'session');
     const profile = session.profile as Profile;
     return profile && typeof profile.sub === 'string' ? profile : null;
-  } catch { await deleteSession(id); return null; }
+  } catch { return null; }
 }

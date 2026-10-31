@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
-import { config, cookieOptions, createSession, deleteSession, Profile, SESSION_COOKIE, TRANSACTION_COOKIE, unseal } from '@/lib/auth';
+import { config, cookieOptions, createSession, Profile, setSessionCookies, TRANSACTION_COOKIE, unseal } from '@/lib/auth';
 export const runtime = 'nodejs';
 export async function GET(request: NextRequest) {
   const settings = config();
@@ -39,10 +39,9 @@ export async function GET(request: NextRequest) {
     if (!profile || typeof profile.sub !== 'string') return failure('userinfo');
     stage = 'session';
     const lifetime = Math.min(Math.floor(tokens.expires_in), 8 * 60 * 60);
-    const id = await createSession(profile, lifetime);
-    await deleteSession(request.cookies.get(SESSION_COOKIE)?.value);
+    const session = await createSession(profile, lifetime);
     const response = NextResponse.redirect(new URL('/', settings.base));
-    response.cookies.set(SESSION_COOKIE, id, cookieOptions(lifetime));
+    setSessionCookies(response, session, lifetime);
     response.cookies.set(TRANSACTION_COOKIE, '', cookieOptions(0));
     return response;
   } catch {

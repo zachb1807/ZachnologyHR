@@ -9,7 +9,7 @@ const errors: Record<string, string> = {
   callback: 'We could not complete sign-in. Please start again.',
   token: 'The sign-in code could not be exchanged. Check the Auth0 client secret and allowed callback URL.',
   userinfo: 'Your profile could not be loaded from the identity provider. Please sign in again.',
-  session: 'Your session could not be saved. Check the server session configuration and try again.',
+  session: 'Your session could not be created. Check SESSION_SECRET and the size of the directory profile, then try again.',
 };
 function Fields({ rows }: { rows: [string, unknown][] }) {
   return <dl className="fields">{rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd className={text(value) === 'Not provided' ? 'empty' : ''}>{text(value)}</dd></div>)}</dl>;
